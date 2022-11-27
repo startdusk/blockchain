@@ -23,5 +23,14 @@ func PublicRoutes(app *web.App, cfg Config) {
 		Log: cfg.Log,
 	}
 
-	app.Handle(http.MethodGet, version, "/test", pbl.Test)
+	app.Handle(http.MethodGet, version, "/node/simple", pbl.Test)
+}
+
+// PrivateRoutes binds all the version 1 public routes.
+func PrivateRoutes(app *web.App, cfg Config) {
+	pbl := public.Handlers{
+		Log: cfg.Log,
+	}
+
+	app.Handle(http.MethodGet, version, "/simple", pbl.Test)
 }
