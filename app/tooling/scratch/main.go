@@ -34,17 +34,13 @@ func sign() error {
 		Name: "startdusk",
 	}
 
-	data, err := json.Marshal(v)
+	data, err := stamp(v)
 	if err != nil {
-		return err
+		return fmt.Errorf("stamp: %w", err)
 	}
 
-	// Hash the transaction data into a 32 byte array. This will private
-	// a data length consistency with all transactions.
-	txHash := crypto.Keccak256(data)
-
 	// Sign the hash with the private key to produce a signature.
-	sig, err := crypto.Sign(txHash, privateKey)
+	sig, err := crypto.Sign(data, privateKey)
 	if err != nil {
 		return fmt.Errorf("sign: %w", err)
 	}
@@ -55,25 +51,22 @@ func sign() error {
 	v2 := struct {
 		Name string
 	}{
-		Name: "startdusk1",
+		Name: "startdusk",
 	}
-	data2, err := json.Marshal(v2)
+	data2, err := stamp(v2)
 	if err != nil {
 		return err
 	}
-	// Hash the transaction data into a 32 byte array. This will private
-	// a data length consistency with all transactions.
-	txHash2 := crypto.Keccak256(data2)
+
+	sigPublicKey, err := crypto.Ecrecover(data2, sig)
+	if err != nil {
+		return err
+	}
 
 	// should error
 	rs := sig[:crypto.RecoveryIDOffset]
-	if !crypto.VerifySignature(sig, txHash2, rs) {
+	if !crypto.VerifySignature(sigPublicKey, data2, rs) {
 		return errors.New("invalid signature")
-	}
-
-	sigPublicKey, err := crypto.Ecrecover(txHash2, sig)
-	if err != nil {
-		return err
 	}
 
 	// Capture the public key associated with this signature.
@@ -84,4 +77,27 @@ func sign() error {
 	parseAddress := crypto.PubkeyToAddress(publicKey).String()
 	fmt.Println(parseAddress)
 	return nil
+}
+
+func stamp(value any) ([]byte, error) {
+	// Marshal the value
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+
+	// Hash the transaction data into a 32 byte array. This will private
+	// a data length consistency with all transactions.
+	txHash := crypto.Keccak256Hash(data)
+
+	// Convert the stamp into a slice of bytes. This stamp is
+	// used so signatures we produce when signing transactions
+	// are always unique Startdusk blockchain.
+	stamp := []byte("\x19Startdusk Signed Message:\n32")
+
+	// Hash the stamp and txHash together in a final 32 byte array
+	// that represents the transcation data.
+	tran := crypto.Keccak256Hash(stamp, txHash.Bytes())
+
+	return tran.Bytes(), nil
 }
