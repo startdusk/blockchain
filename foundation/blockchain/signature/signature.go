@@ -3,6 +3,7 @@ package signature
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,10 +13,26 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
+// ZeroHash represents a hash code of zeros.
+const ZeroHash string = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
 // startduskID is an arbitrary number for signing messages. This will make it
 // clear that the signature comes from the Startdusk blockchain.
 // Ethereum and Bitcoin do this as well, but they use the value of 27.
 const startduskID = 29
+
+// =============================================================================
+
+// Hash returns a unique string for the value.
+func Hash(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ZeroHash
+	}
+
+	hash := sha256.Sum256(data)
+	return "0x" + hex.EncodeToString(hash[:])
+}
 
 // Sign uses the specified private key to sign the user transaction.
 func Sign(value any, privateKey *ecdsa.PrivateKey) (v, r, s *big.Int, err error) {
@@ -32,8 +49,20 @@ func Sign(value any, privateKey *ecdsa.PrivateKey) (v, r, s *big.Int, err error)
 		return nil, nil, nil, err
 	}
 
+	// Extract the public key from the data and the signature.
+	publicKey, err := crypto.SigToPub(data, sig)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Check the public key extracted from the data and signature.
+	rs := sig[:crypto.RecoveryIDOffset]
+	if !crypto.VerifySignature(crypto.FromECDSAPub(publicKey), data, rs) {
+		return nil, nil, nil, errors.New("invalid signature")
+	}
+
 	// Convert the 65 byte signature into the [R|S|V] format.
-	v, r, s = toSignatureValues(sig)
+	v, r, s = ToSignatureValues(sig)
 
 	return v, r, s, nil
 }
@@ -60,7 +89,7 @@ func VerifySignature(value any, v, r, s *big.Int) error {
 	}
 
 	// Convert the [R|S|V] format into the original 65 bytes.
-	sig := toSignatureBytes(v, r, s)
+	sig := ToSignatureBytes(v, r, s)
 
 	// Capture the uncompressed public key associated with this signature.
 	sigPublicKey, err := crypto.Ecrecover(tran, sig)
@@ -87,7 +116,7 @@ func FromAddress(value any, v, r, s *big.Int) (string, error) {
 	}
 
 	// Convert the [R|S|V] format into the original 65 bytes.
-	sig := toSignatureBytes(v, r, s)
+	sig := ToSignatureBytes(v, r, s)
 
 	// Validate the signature since there can be conversion issues
 	// between [R|S|V] to []bytes. Leading 0's are truncated by big package.
@@ -145,8 +174,8 @@ func stamp(value any) ([]byte, error) {
 	return tran.Bytes(), nil
 }
 
-// toSignatureValues converts the signature into the r, s, v values.
-func toSignatureValues(sig []byte) (v, r, s *big.Int) {
+// ToSignatureValues converts the signature into the r, s, v values.
+func ToSignatureValues(sig []byte) (v, r, s *big.Int) {
 	r = new(big.Int).SetBytes(sig[:32])
 	s = new(big.Int).SetBytes(sig[32:64])
 	v = new(big.Int).SetBytes([]byte{sig[64] + startduskID})
@@ -154,9 +183,9 @@ func toSignatureValues(sig []byte) (v, r, s *big.Int) {
 	return v, r, s
 }
 
-// toSignatureBytes converts the r, s, v values into a slice of bytes
+// ToSignatureBytes converts the r, s, v values into a slice of bytes
 // with the removal of the startduskID.
-func toSignatureBytes(v, r, s *big.Int) []byte {
+func ToSignatureBytes(v, r, s *big.Int) []byte {
 	sig := make([]byte, crypto.SignatureLength)
 
 	rBytes := r.Bytes()
@@ -181,7 +210,7 @@ func toSignatureBytes(v, r, s *big.Int) []byte {
 // toSignatureBytesWithStartduskID converts the r, s, v values into a slice of bytes
 // keeping the Startdusk id.
 func toSignatureBytesWithStartduskID(v, r, s *big.Int) []byte {
-	sig := toSignatureBytes(v, r, s)
+	sig := ToSignatureBytes(v, r, s)
 	sig[64] = byte(v.Uint64())
 
 	return sig
